@@ -181,6 +181,48 @@ def ml_model():
     st.info(f"Rows before: **{before:,}** → after: **{df.shape[0]:,}**")
 
     # ======================================================
+    # 2.5) Correlation Heatmap
+    # ======================================================
+    st.write("### Correlation Heatmap (Numerical Features)")
+
+    corr_cols = numeric_cols + ["Exited"]
+    corr_df = df[corr_cols].corr()
+
+    fig_corr = px.imshow(
+        corr_df,
+        text_auto=".2f",
+        color_continuous_scale="Reds",
+        aspect="auto",
+        title="Feature Correlation Matrix"
+    )
+
+    fig_corr.update_traces(showscale=True)
+
+    fig_corr.update_xaxes(showgrid=False, showline=False, ticks="")
+    fig_corr.update_yaxes(showgrid=False, showline=False, ticks="")
+
+    fig_corr.update_layout(
+        height=520,
+        margin=dict(l=40, r=40, t=80, b=40),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=PALETTE["text"]),
+        coloraxis_colorbar=dict(
+            title="Correlation",
+            tickvals=[-1, -0.5, 0, 0.5, 1]
+        ),
+    )
+
+    st.plotly_chart(fig_corr, use_container_width=True)
+
+    st.info(
+    "📌 **Insight Correlation:** Seluruh pasangan fitur memiliki nilai korelasi di bawah **0.8**, "
+    "sehingga **tidak terindikasi multikolinearitas tinggi**. "
+    "Oleh karena itu, **tidak ada fitur yang di-drop** berdasarkan analisis korelasi."
+    )
+
+
+    # ======================================================
     # 3) Feature Encoding
     # ======================================================
     st.write("### 2. Feature Encoding (One-Hot)")
