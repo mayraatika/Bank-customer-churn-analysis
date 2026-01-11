@@ -89,6 +89,43 @@ def _confusion_fig(cm, title):
     )
     return _base_layout(fig, title=title, height=420)
 
+def _confusion_fig_small(cm, title):
+    fig = px.imshow(
+        cm,
+        text_auto=True,
+        color_continuous_scale=[
+            [0.0, PALETTE["cream"]],
+            [0.5, PALETTE["yellow"]],
+            [1.0, PALETTE["green"]],
+        ]
+    )
+
+    fig.update_layout(
+        title=title,
+        height=260,
+        width=260,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        coloraxis_showscale=False,
+        font=dict(size=11, color=PALETTE["text"])
+    )
+
+    fig.update_xaxes(
+        ticktext=["Pred 0", "Pred 1"],
+        tickvals=[0, 1],
+        showgrid=False,
+        zeroline=False
+    )
+    fig.update_yaxes(
+        ticktext=["Actual 0", "Actual 1"],
+        tickvals=[0, 1],
+        showgrid=False,
+        zeroline=False
+    )
+
+    return fig
+
 
 def _scorecard_vertical(title: str, thr: float, acc: float, prec: float, rec: float, f1: float, auc: float, fp: int, fn: int):
     """
@@ -183,7 +220,7 @@ def ml_model():
     # ======================================================
     # 2.5) Correlation Heatmap
     # ======================================================
-    st.write("### Correlation Heatmap (Numerical Features)")
+    st.write("### 2. Correlation Heatmap (Numerical Features)")
 
     corr_cols = numeric_cols + ["Exited"]
     corr_df = df[corr_cols].corr()
@@ -225,7 +262,7 @@ def ml_model():
     # ======================================================
     # 3) Feature Encoding
     # ======================================================
-    st.write("### 2. Feature Encoding (One-Hot)")
+    st.write("### 3. Feature Encoding (One-Hot)")
 
     st.markdown(
         """
@@ -247,7 +284,7 @@ def ml_model():
     # ======================================================
     # 4) Train-Test Split 
     # ======================================================
-    st.write("### 3. Train–Test Split")
+    st.write("### 4. Train–Test Split")
 
     test_size = st.slider("Test size", 0.15, 0.40, 0.20, 0.05)
     random_state = st.number_input("Random state", value=42, step=1)
@@ -275,7 +312,7 @@ def ml_model():
     # ======================================================
     # 5) Scaling (fit on train only) + SAVE SCALER
     # ======================================================
-    st.write("### 4. Scaling (MinMaxScaler)")
+    st.write("### 5. Scaling (MinMaxScaler)")
 
     scaler = MinMaxScaler()
     scale_cols = [c for c in numeric_cols if c in X_train.columns]
@@ -292,7 +329,7 @@ def ml_model():
     # ======================================================
     # 6) Imbalance Handling
     # ======================================================
-    st.write("### 5. Handling Imbalanced Data")
+    st.write("### 6. Handling Imbalanced Data")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Train Active (0)", int((y_train == 0).sum()))
@@ -308,10 +345,107 @@ def ml_model():
         X_train_final, y_train_final = X_train_scaled, y_train
         class_weight = "balanced"
 
+    # =========================
+    # Display class balance AFTER handling imbalance
+    # =========================
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Train Active (0) — After", int((y_train_final == 0).sum()))
+    a2.metric("Train Churn (1) — After", int((y_train_final == 1).sum()))
+    
+
+    if SMOTE_AVAILABLE:
+        st.success("✅ Dataset berhasil diseimbangkan menggunakan SMOTE.")
+    else:
+        st.info("ℹ️ Dataset menggunakan class_weight='balanced' (tanpa oversampling).")
+
+    
+    # ======================================================
+    # 7) Baseline Model Comparison
+    # ======================================================
+    st.write("### 7. Baseline Model Comparison")
+
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.svm import SVC
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.naive_bayes import GaussianNB
+
+    models = {
+        "Logistic Regression": LogisticRegression(max_iter=1000),
+        "Decision Tree": DecisionTreeClassifier(random_state=int(random_state)),
+        "Random Forest": RandomForestClassifier(
+            n_estimators=300,
+            max_depth=10,
+            random_state=int(random_state),
+            n_jobs=-1,
+            class_weight=class_weight
+        ),
+        "SVM (RBF)": SVC(probability=True),
+        "KNN (k=13)": KNeighborsClassifier(n_neighbors=13),
+        "Naive Bayes": GaussianNB(),
+    }
+
+    results = []
+    cm_results = {}
+
+    for name, mdl in models.items():
+        mdl.fit(X_train_final, y_train_final)
+
+        y_pred = mdl.predict(X_test_scaled)
+        y_prob = mdl.predict_proba(X_test_scaled)[:, 1] if hasattr(mdl, "predict_proba") else None
+
+        results.append({
+            "Model": name,
+            "Accuracy": accuracy_score(y_test, y_pred),
+            "Precision": precision_score(y_test, y_pred, zero_division=0),
+            "Recall": recall_score(y_test, y_pred, zero_division=0),
+            "F1": f1_score(y_test, y_pred, zero_division=0),
+            "ROC AUC": roc_auc_score(y_test, y_prob) if y_prob is not None else np.nan
+        })
+
+        cm_results[name] = confusion_matrix(y_test, y_pred)
+
+    results_df = (
+        pd.DataFrame(results)
+        .sort_values("F1", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    st.dataframe(
+        results_df.style.format({
+            "Accuracy": "{:.3f}",
+            "Precision": "{:.3f}",
+            "Recall": "{:.3f}",
+            "F1": "{:.3f}",
+            "ROC AUC": "{:.3f}",
+        }),
+        use_container_width=True
+    )
+
+    st.markdown("### 8. Confusion Matrix Comparison")
+
+    model_names = list(cm_results.keys())
+    n_cols = 3
+    rows = [model_names[i:i+n_cols] for i in range(0, len(model_names), n_cols)]
+
+    for row_models in rows:
+        cols = st.columns(len(row_models))
+        for col, model_name in zip(cols, row_models):
+            with col:
+                st.plotly_chart(
+                    _confusion_fig_small(cm_results[model_name], model_name),
+                    use_container_width=False
+                )
+    st.info(
+        "Random Forest dipilih sebagai model utama karena memiliki keseimbangan terbaik "
+        "antara accuracy, precision, dan recall, serta jumlah false negative yang lebih terkendali "
+        "dibandingkan model baseline lainnya."
+    )
+
     # ======================================================
     # 7) Train Random Forest
     # ======================================================
-    st.write("### 6. Train Random Forest")
+    st.write("### 9. Train Random Forest")
 
     model = RandomForestClassifier(
         n_estimators=450,
@@ -330,7 +464,7 @@ def ml_model():
     # ======================================================
     # 8) Feature Importance (Grouped)
     # ======================================================
-    st.write("### 7. Feature Importance")
+    st.write("### 10. Feature Importance")
 
     importance_df = pd.DataFrame({
         "Feature": X_train_scaled.columns,
@@ -377,7 +511,7 @@ def ml_model():
     # ======================================================
     # 9) Model Evaluation 
     # ======================================================
-    st.write("### 8. Model Evaluation")
+    st.write("### 11. Model Evaluation")
 
     y_prob = model.predict_proba(X_test_scaled)[:, 1]
 
@@ -405,7 +539,7 @@ def ml_model():
     # ======================================================
     # 10) Threshold tuning
     # ======================================================
-    st.write("### 9. Threshold Tuning")
+    st.write("### 12. Threshold Tuning")
     st.caption("Goal: reduce missed churn (FN) while keeping FP controlled (precision guardrail).")
 
     min_precision = max(0.0, default_prec * 0.90)
@@ -464,7 +598,7 @@ def ml_model():
     # ======================================================
     # 11) Scorecard + CM comparison FIX
     # ======================================================
-    st.write("### 10. Model Scorecard (Default vs Tuned)")
+    st.write("### 13. Model Scorecard (Default vs Tuned)")
 
     left, right = st.columns(2, gap="large")
     with left:
@@ -480,7 +614,7 @@ def ml_model():
             fp_b, fn_b
         )
 
-    st.write("### 11. Confusion Matrix Comparison")
+    st.write("### 14. Confusion Matrix Comparison")
 
     cm1, cm2 = st.columns(2, gap="large")
     with cm1:
@@ -491,7 +625,7 @@ def ml_model():
     # ======================================================
     # 12) Save model + artifacts (INCLUDING scaler)
     # ======================================================
-    st.write("### 12. Save Model & Artifacts")
+    st.write("### 15. Save Model & Artifacts")
 
     if st.button("💾 Save Model"):
         joblib.dump(model, "model_churn.pkl")
